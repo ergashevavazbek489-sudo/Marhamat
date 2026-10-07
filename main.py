@@ -1,16 +1,18 @@
 import asyncio
 import logging
 import aiohttp
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+import os
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # ========================================================
-# ⚙️ SOZLAMALAR (Faqat shu yerni o‘zgartiring)
+# ⚙️ SOZLAMALAR
 # ========================================================
 TELEGRAM_TOKEN = "8908621766:AAECM8wqrAdqJ3eBGQvmXJJ3vj8kkzftOw4"
 OPENROUTER_API_KEY = "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"
@@ -77,7 +79,6 @@ async def process_problem(message: types.Message, state: FSMContext):
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-    # AI orqali kategoriya va qisqacha tahlil
     classify_prompt = f"""
 Siz hokimlik murojaatlarini saralovchi mutaxassissiz.
 Faqat quyidagi formatda javob bering:
@@ -129,7 +130,6 @@ Murojaat:
     except Exception as e:
         logging.error(f"Saralash xatosi: {e}")
 
-    # Admin ga yuborish
     admin_text = (
         f"📥 <b>Yangi rasmiy murojaat</b>\n\n"
         f"📂 <b>Kategoriya:</b> {kategoriya}\n"
@@ -160,7 +160,6 @@ async def handle_ai_chat(message: types.Message, state: FSMContext):
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-    # Fuqaroga AI javob
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -189,25 +188,26 @@ async def handle_ai_chat(message: types.Message, state: FSMContext):
         logging.error(f"AI javob xatosi: {e}")
         await message.reply("Hurmatli fuqaro, texnik xatolik yuz berdi.")
 
-    # Agar shikoyatga o‘xshasa — admin ga ham yuborish
-    lower_text = message.text.lower()
-    shikoyat_sozlar = ["shikoyat", "ariza", "muammo", "ishlamayapti", "buzilgan", "yordam kerak", "murojaat"]
-    
-    if any(soz in lower_text for soz in shikoyat_sozlar) and len(message.text) > 25:
-        try:
-            admin_text = (
-                f"🔔 <b>Avtomatik aniqlangan murojaat</b>\n\n"
-                f"👤 {message.from_user.full_name}\n"
-                f"🆔 ID: <code>{message.from_user.id}</code>\n"
-                f"📝 Matn:\n{message.text}"
-            )
-            await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML")
-        except:
-            pass
+# ---------- WEB SERVER (Render port talabi uchun) ----------
+async def handle_ping(request):
+    return web.Response(text="Bot ishlayapti!")
+
+async def web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logging.info(f"Veb-server {port}-portda ishga tushdi.")
 
 async def main():
     logging.info("Bot ishga tushmoqda...")
-    await dp.start_polling(bot)
+    await asyncio.gather(
+        web_server(),
+        dp.start_polling(bot)
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
